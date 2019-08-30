@@ -1,0 +1,329 @@
+load "twists.magma";
+
+//group algebra Z[(mu_d)^4/mu_d]/I representing primitive cohomology
+Hprim<u0,u1,u2,u3>:=AffineAlgebra<Kd, u0,u1,u2,u3|1-u0*u1*u2*u3,
+        (u0^ds[1]-1) div (u0-1), (u1^ds[2]-1) div (u1-1), (u2^ds[3]-1) div (u2-1), (u3^ds[4]-1) div (u3-1)>;
+mons := Setseq(MonomialBasis(Hprim));
+//the intersection matrix
+HprimInt := ZeroMatrix(Z, #mons, #mons);
+for j:=1 to #mons do
+    for k:=1 to #mons do
+        diffs := Eltseq(Vector(Exponents(mons[j]))-Vector(Exponents(mons[k])));
+        if Seqset(diffs) eq {0} then
+            HprimInt[j,k] := -2;
+        end if;
+        if Seqset(diffs) in {{0,1},{0,-1}} then
+            HprimInt[j,k] := -(-1)^&+diffs;
+        end if;
+    end for;
+end for;
+//assert Determinant(HprimInt) eq -d/&*qs;
+w := d/&*qs;
+
+//singularities in the non-smooth case (irrelevant for now)
+J0 := [[j,k]:j,k in [1..4]|j lt k and not IsCoprime(qs[j],qs[k])];
+dijs := [Gcd(qs[j0[1]],qs[j0[2]]): j0 in J0];
+eijs := [Lcm(qs[j0[1]],qs[j0[2]]): j0 in J0];
+alphas := [Z!Integers(dijs[k])!(qs[J0[k][2]]/qs[J0[k][1]]) : k in [1..#J0]];
+bs := [ContinuedFraction(dijs[k]/alphas[k],-1): k in [1..#J0]];
+
+// the intersection matrix of the index d sublattice Hprim+L with added hyperplane section L
+AmbHInt := DiagonalJoin(ChangeRing(HprimInt,Q),ScalarMatrix(Q,1,w));
+incHprim := HorizontalJoin(IdentityMatrix(Q,b2-1),ZeroMatrix(Q,b2-1,1));
+
+//convert Hprim into VectorSpace
+Vmons, monsmap := VectorSpace(Hprim);
+
+//missing element for full cohomology
+c := &+[u0^a*u1^b: a,b in [0..d-2]|a le b]*&+[u2^a*u3^b: a,b in [0..d-2]|a le b];
+
+//the basis of full cohomology Hfull expressed in AmbHInt
+BHfull := VerticalJoin(incHprim, Matrix(Q,[Eltseq(monsmap(c)/d) cat [1/w]]));
+//intersection matrix of full cohomology
+HInt := ChangeRing(BHfull*AmbHInt*Transpose(BHfull),Z);
+
+//transcendental cycles should evaluate 0 on points in PA
+monsvalT := Matrix([&cat[Eltseq(Evaluate(phi,PK)): PK in PA]:phi in mons]);
+//basis of transcendental lattice T in Hfull
+BT := Saturation(ChangeRing(DiagonalMatrix([Q!Lcm([Denominator(x):x in Eltseq(b)]):b in Basis(Kernel(monsvalT))])*BasisMatrix(Kernel(monsvalT)),Z))
+            *ChangeRing(incHprim,Z);
+TInt := BT*HInt*Transpose(BT);
+
+//the rk of T
+cork := Nrows(TInt);
+LambdaT := RSpace(Z,cork);
+
+inclT := hom<LambdaT->LambdaT|TInt>; //CARE!
+//discriminant quotient
+DiscT, phiT := quo<LambdaT|Image(inclT)>;
+//dmax is the maximal denominator we have to care about when computing in T tensor Q/Z
+//we will thus multiply all elements by dmax and compute modulo dmax
+dmax := Maximum(Moduli(DiscT))*l; Zdmax := Integers(dmax);
+//matrix representing T->Disc
+PhiTMatrix := Matrix([phiT(LambdaT.i): i in [1..cork]]);
+//a section of this map
+PhiTSection:=ChangeRing(Solution(ChangeRing(PhiTMatrix,Zdmax), IdentityMatrix(Zdmax, Dimension(DiscT))),Z);
+
+
+//f1 is a basis for Disc in T/dmax
+//1/dmax*f2 is a basis for the preimage M of Br[l] in T tensor Q/Z
+f1 := ChangeRing(PhiTSection,Q)*ChangeRing(TInt,Q)^-1;
+f2 := 1/l*ChangeRing(TInt,Q)^-1;
+f1 := ChangeRing(f1*dmax,Zdmax);
+f2 := ChangeRing(f2*dmax,Zdmax);
+AmbT := RSpace(Zdmax, cork);
+
+//(re)construct Disc as submodule of T/dmax
+DiscT := sub<AmbT|RowSequence(f1)>;
+BDiscT := BasisMatrix(DiscT);
+//put DiscT in canonical form (trick: quotient by trivial module)
+DiscTalt, phiDiscT := DiscT/sub<DiscT|>;
+//the moduli of the discriminant
+invDisc := [Gcd(Z!m,dmax):m in Moduli(DiscTalt)];
+PhiDiscTMatrix := Matrix([phiDiscT(b): b in Basis(DiscT)]);
+PhiDiscTSection := Solution(PhiDiscTMatrix, IdentityMatrix(Zdmax, Dimension(DiscTalt)));
+
+//same as for Disc but for M
+M := sub<AmbT|RowSequence(f2)>;
+BM := BasisMatrix(M);
+Malt, phiM := M/sub<M|>;
+invM := [Gcd(Z!m,dmax):m in Moduli(Malt)];
+PhiMMatrix := Matrix([phiM(b): b in Basis(M)]);
+PhiMSection := Solution(PhiMMatrix, IdentityMatrix(Zdmax, Dimension(Malt)));
+
+//If we have set up everything correctly, T/l=Br[l] is the quotient of M by Disc
+Brl, phiBrl := M/DiscT;
+BBrl := BasisMatrix(Brl);
+invBrl := [Gcd(Z!m,dmax):m in Moduli(Brl)];
+PhiBrlMatrix := Matrix([phiBrl(b): b in Basis(M)]);
+PhiBrlSection := Solution(PhiBrlMatrix, IdentityMatrix(Zdmax, Dimension(Brl)));
+
+//algebraic cycles should vanish on PT
+monsvalPic := Matrix([&cat[Eltseq(Evaluate(phi,PK)): PK in PT]:phi in mons]);
+//basis matrix of Pic in Hfull
+BPic := DiagonalJoin(Saturation(ChangeRing(DiagonalMatrix([Q!Lcm([Denominator(x):x in Eltseq(b)]):b in Basis(Kernel(monsvalPic))])*BasisMatrix(Kernel(monsvalPic)),Z))
+    ,ScalarMatrix(Z,1,1));
+//intersection matrix on Pic
+PicInt := ChangeRing(BPic*HInt*Transpose(BPic),Z);
+//the rk of Pic
+rho := Nrows(PicInt);
+//construct Disc as quotient of Pic*
+LambdaPic := RSpace(Z,rho);
+incl := hom<LambdaPic->LambdaPic|PicInt>;
+DiscPic, phiDiscPic := quo<LambdaPic|Image(incl)>; DiscPic;
+PhiDiscPicMatrix := Matrix([phiDiscPic(b): b in Basis(LambdaPic)]);
+PhiDiscPicSection := Solution(PhiDiscPicMatrix, IdentityMatrix(Z, Dimension(DiscPic)));
+
+//idempotent where (mu_d)^3 acts like character chi_a
+IdempotentHodge := function(a)
+    a1 := 1/ds[2]*&+[ed^(-a[2]*j)*u1^j:j in [0..ds[2]-1]];
+    a2 := 1/ds[3]*&+[ed^(-a[3]*j)*u2^j:j in [0..ds[3]-1]];
+    a3 := 1/ds[4]*&+[ed^(-a[4]*j)*u3^j:j in [0..ds[4]-1]];
+    return a1*a2*a3;
+end function;
+idems := [IdempotentHodge(a): a in Zfull];
+BEig := DiagonalJoin(Matrix([monsmap(x): x in idems]),ScalarMatrix(Kd,1,1));
+
+//eigenvalue of Frob_P at eigenspace of chi_a using Gauss sums
+//we will not use this function and instead rely on Stickelberger
+CMEigenvalue := function(a,P)
+    k, modP := ResidueClassField(P);
+    p := Characteristic(k);
+    Kp := CyclotomicField(d*p);
+    ep := RootOfUnity(p,Kp);
+    gsums := Vector([Kp|0,0,0,0]);
+    for x in Exclude(Set(k),0) do 
+        gsums +:= Vector([ed^(aj*Log(modP(ed),x^(#k div d)))*ep^(Z!Trace(x,GF(p))): aj in a]);
+    end for;
+    return Od!&*Eltseq(gsums) div #k;
+end function;
+
+//the Stickelberger element of chi_a
+Stickelberger := function(a)
+    return &+[Floor(&+[FractionalPart((a[r]*Z!resd(t))/d):r in [1..3]])*st^InverseMod(-Z!resd(t),d): t in Ud];
+end function;
+stick := AssociativeArray();
+for a in as do
+    stick[Seqset(a)] := Stickelberger(a);
+end for;
+
+//let Stickelberger element s act on pi in Kd
+StickToAction := function(s, pi)
+    return &*[hom<Kd->Kd|ed^rt>(pi)^Coefficient(s,rt):t in Ud|true where rt is Z!resd(t)];
+end function;
+
+//make pi primary in the sense of Eisenstein
+EisensteinPrimary := function(pi)
+      if d eq 6 then
+        return [epi: j in [0..5]|b mod 3 eq 0 and
+            (((a+b) mod 4 eq 1 and b mod 2 eq 0) or (b mod 4 eq 1 and a mod 2 eq 0) or (a mod 4 eq 3 and a*b mod 2 eq 1))
+            where a is Z!Eltseq(epi)[1] where b is Z!Eltseq(epi)[2] where epi is ed^j*pi][1];
+      else
+      a:=Z!red(pi);
+      b:=Z!red((pi-a)/xd);
+      return ed^(b*InverseMod(a,d))*pi;
+      end if;
+end function;
+
+//the action of Frob_P on Hfull for d prime or d=4,6
+// the latter two require previously determined twists
+FrobeniusAction := function(P)
+    _,pi := IsPrincipal(P);
+   eigvals := [StickToAction(stick[Seqset(a)], EisensteinPrimary(pi)): a in Zfull] cat [Norm(P)];
+   if d eq 4 then
+        k, modP := ResidueClassField(P);
+        chi1 := ed^Log(modP(ed),modP(-1)^(Z!(Norm(P)-1) div d));
+        for j in [j:j in [1..b2-1]|Seqset(Zfull[j]) eq {1,2,2,3}] do
+            eigvals[j]*:= chi1;
+        end for;
+   end if;
+   if d eq 6 then
+        k, modP := ResidueClassField(P);
+        chi4 := ed^Log(modP(ed),modP(-4)^(Z!(Norm(P)-1) div d));
+        chi1 := ed^Log(modP(ed),modP(-1)^(Z!(Norm(P)-1) div d));
+        for j in [1..b2-1] do
+            eigvals[j] *:= chi4^twists6[Seqset(Zfull[j])];
+        end for;
+   end if; 
+   return ChangeRing(BHfull*ChangeRing(BEig^-1*DiagonalMatrix(eigvals)*BEig,Q)*BHfull^-1,Z);
+end function;
+
+//extend reciprocity map to all ideals I
+FrobeniusActionI := function(I)
+    return &*[FrobeniusAction(P[1])^P[2]:P in Factorization(I)];
+end function;
+
+//the relevant actions will factor through the ray class field of ideal (dmax)
+C,crep:=ClassGroup(Kd);
+KC:=AbelianExtension(ideal<Od|dmax>);
+//reciprocity map
+rec:=NormGroup(KC);
+//N=Gal(KC/Kd)
+N:=Domain(rec);
+//actions of N
+actions := [ChangeRing(FrobeniusActionI(rec(N.j)),Q)/Norm(rec(N.j)): j in [1..Ngens(N)]];
+//actions of multiplying coordinates with ed
+actions cat:= [ChangeRing(ChangeRing(BHfull,Kd)*BEig^-1*DiagonalMatrix([ed^(-a[j]) : a in Zfull] cat [1])
+            *BEig*ChangeRing(BHfull^-1,Kd),Q) : j in [2..4]];
+            
+//actions of Gal(Kd/Q)
+actions cat:= [BHfull*DiagonalJoin(Matrix([ChangeRing(monsmap(
+    -(1-u1^-t)/(1-u1^-1)*(1-u2^-t)/(1-u2^-1)*(1-u3^-t)/(1-u3^-1)*(u1*u2*u3)^(Z!((t-1)/2))*b^(t)
+    ),Q): b in mons]), Matrix([[Q|1]]))*BHfull^-1 where t is Z!tred: tred in cycgensd];
+            
+
+//construct the group GM=N x (Z/d)^3 semidirect product Gal(Kd/Q)
+FQ := FreeGroup(Ngens(N)+ 3 + #cycgensd);
+rels := [(FQ.j)^Order(N.j)=Id(FQ) : j in [1..Ngens(N)]] cat [(FQ.(Ngens(N)+j))^d=Id(FQ) : j in [1..3]]
+        cat [(FQ.(Ngens(N)+3+j))^Order(cycgensd[j])=Id(FQ): j in [1..#cycgensd]]
+        cat [(FQ.(Ngens(N)+j))^FQ.(Ngens(N)+3+k) = (FQ.(Ngens(N)+j))^Z!cycgensd[k] : j in [1..3], k in [1..#cycgensd]]
+        cat [(FQ.j)^FQ.(Ngens(N)+3+k) = &*[(FQ.h)^(Eltseq(ideal<Od|[homsKd[k](x) : x in Generators(N.j @ rec)]> @@ rec)[h]): h in [1..Ngens(N)]]
+            : j in [1..Ngens(N)], k in [1..#cycgensd]]
+        cat [(FQ.j)^FQ.k=FQ.j : j,k in [1..Ngens(N)+3]] //trivial commutator relations are annoyingly needed
+        cat [(FQ.j)^FQ.k=FQ.j : j,k in [Ngens(N)+4..Ngens(N)+3+#cycgensd]];
+GM := quo<FQ|rels>;
+
+// we need to convert GM to a conditioned polycyclic group to do computations
+//isoPC:GM->GMPC is the isomorphism
+GMPC, isoPC := PCGroup(GM); GMPC := ConditionedGroup(GMPC);
+
+//projection to and inclusion from N
+redN := Homomorphism(GM,N,[GM.j:j in [1..Ngens(GM)]],[N.j:j in [1..Ngens(N)]] cat [N|0: j in [1..3+#cycgensd]]);
+
+incN := Homomorphism(N,GM,[N.j:j in [1..Ngens(N)]],[GM.j:j in [1..Ngens(N)]]);
+
+// Construct the middle cohomology Galois representation.
+//This does not really factor through GM but modules constructed later will.
+H2ModGen := RestrictGModule(GModule(GM,actions),isoPC^-1,GMPC);
+MModGen := QuoGModule(SubGModule(ChangeRing(SubGModule(H2ModGen,ChangeRing(BT,Q)),Zdmax),BM),PhiMMatrix);
+CMGen := CohomologyModule(GMPC,invM,ActionGenerators(ChangeRing(MModGen,Z)));
+PicModGen := ChangeRing(SubGModule(H2ModGen,ChangeRing(BPic,Q)),Z);
+
+//N is actually bigger than what we need, we compute the fixed part under action on Pic and M
+Nfix := Kernel(hom<N->GL(rho, Z)|[Representation(PicModGen)((incN*isoPC)(N.j)):j in [1..Ngens(N)]]>);
+// for x in Seqset(invM) do
+//     ix := Index(invM,x);
+//     Modx := GModule(GMPC,[ChangeRing(SubmatrixRange(ac,ix,ix,Nrows(ac), Ncols(ac)),Integers(x)): ac in ActionGenerators(MModGen)]);
+//     Nfix meet:= Kernel(hom<N->GL(cork-ix+1, Integers(x))|[Representation(Modx)((incN*isoPC)(N.j)):j in [1..Ngens(N)]]>);
+// end for;
+Nfix := sub<Nfix|[n: n in Nfix|IsIdentity(ReduceMatrix(Representation(MModGen)((incN*isoPC)(n)), invM))]>;
+
+//the true Galois group over Kd we need is Gal
+Gal, redNGal := N/Nfix;
+//construct G as GM but Gal replacing N
+F := FreeGroup(Ngens(Gal)+ 3 + #cycgensd);
+rels := [(F.j)^Order(Gal.j)=Id(F) : j in [1..Ngens(Gal)]] cat [(F.(Ngens(Gal)+j))^d=Id(F) : j in [1..3]]
+        cat [(F.(Ngens(Gal)+3+j))^Order(cycgensd[j])=Id(F): j in [1..#cycgensd]]
+        cat [(F.(Ngens(Gal)+j))^F.(Ngens(Gal)+3+k) = (F.(Ngens(Gal)+j))^Z!cycgensd[k] : j in [1..3], k in [1..#cycgensd]]
+        cat [(F.j)^F.(Ngens(Gal)+3+k) = (F.j)^(Eltseq(ideal<Od|[homsKd[k](x) : x in Generators(Gal.j @@redNGal @ rec)]> @@ rec @ redNGal)[j])
+            : j in [1..Ngens(Gal)], k in [1..#cycgensd]]
+        cat [(F.j)^F.k=F.j : j,k in [1..Ngens(Gal)+3]] //trivial commutator relations are annoyingly needed
+        cat [(F.j)^F.k=F.j : j,k in [Ngens(Gal)+4..Ngens(Gal)+3+#cycgensd]];
+G := quo<F|rels>;
+redGal := Homomorphism(G,Gal,[G.j:j in [1..Ngens(G)]],[Gal.j:j in [1..Ngens(Gal)]] cat [Gal|0:j in [1..3+#cycgensd]]);
+inclGal := Homomorphism(Gal,G,[Gal.j:j in [1..Ngens(Gal)]],[G.j:j in [1..Ngens(Gal)]]);
+redUd := Homomorphism(G,Ud,[G.j:j in [1..Ngens(G)]],[Id(Ud):j in [1..Ngens(Gal)+3]] cat Setseq(Generators(Ud)));
+
+//the polycyclic representation of G
+GPC, redGPC := GMPC/(incN*isoPC)(Nfix);
+isoGPC := Homomorphism(G, GPC, [G.j : j in [1..Ngens(G)]],
+                [(incN*isoPC*redGPC)(Gal.j @@ redNGal) : j in [1..Ngens(Gal)]] cat [(isoPC*redGPC)(GM.(Ngens(N)+j)) : j in [1..3+#cycgensd]]);
+isoGPCinv := isoGPC^-1;//Homomorphism(GPC, G, [GPC.j : j in [1..NPCgens(GPC)]],[[g: g in G|g @ isoGPC eq GPC.j][1] : j in [1..NPCgens(GPC)]]);
+
+//Galois group over Q
+FGal := FreeGroup(Ngens(Gal) + #cycgensd);
+rels := [(FGal.j)^Order(Gal.j)=Id(FGal) : j in [1..Ngens(Gal)]]
+        cat [(FGal.(Ngens(Gal)+j))^Order(cycgensd[j])=Id(FGal): j in [1..#cycgensd]]
+        cat [(FGal.j)^FGal.(Ngens(Gal)+k) = (FGal.j)^(Eltseq(ideal<Od|[homsKd[k](x) : x in Generators(Gal.j @@redNGal @ rec)]> @@ rec @ redNGal)[j])
+            : j in [1..Ngens(Gal)], k in [1..#cycgensd]]
+        cat [(FGal.j)^FGal.k=FGal.j : j,k in [1..Ngens(Gal)]] //trivial commutator relations are annoyingly needed
+        cat [(FGal.j)^FGal.k=FGal.j : j,k in [Ngens(Gal)+1..Ngens(Gal)+#cycgensd]];
+GalQ := quo<FGal|rels>;
+GalQPC, isoGalQ := PCGroup(GalQ);
+redGalQ := Homomorphism(G,GalQ,[G.j:j in [1..Ngens(G)]],[GalQ.j : j in [1..Ngens(Gal)]]
+            cat [Id(GalQ): j in [1..3]]
+            cat [GalQ.(Ngens(Gal)+j) : j in [1..#cycgensd]]);
+
+//construct all relevant cohomology modules
+H2ModGen := FactorGModule(H2ModGen, redGPC, GPC);
+
+PicModGen := FactorGModule(PicModGen, redGPC, GPC);
+CPicGen := CohomologyModule(GPC,PicModGen);
+
+PicDualModGen := Dual(PicModGen);
+CPicDualGen := CohomologyModule(GPC,PicDualModGen);
+
+DiscPicModGen := QuoGModule(ChangeRing(PicDualModGen,Zdmax), ChangeRing(PhiDiscPicMatrix,Zdmax));
+CDiscPicGen := CohomologyModule(GPC,invDisc,ActionGenerators(DiscPicModGen));
+
+MModGen := FactorGModule(MModGen, redGPC, GPC);
+CMGen := CohomologyModule(GPC,invM,ActionGenerators(ChangeRing(MModGen,Z)));
+
+DiscTModGen := QuoGModule(SubGModule(ChangeRing(SubGModule(H2ModGen,ChangeRing(BT,Q)),Zdmax),BDiscT),PhiDiscTMatrix);
+CDiscTGen := CohomologyModule(GPC,invDisc,ActionGenerators(ChangeRing(DiscTModGen,Z)));
+
+BrlModGen := ChangeRing(QuoGModule(MModGen,PhiMSection*PhiBrlMatrix),Zl);
+CBrlGen := CohomologyModule(GPC,BrlModGen);
+
+//all maps we ever need
+//f1: Pic->Pic*
+//f2: Pic*->Pic*/Pic
+//f3: Pic*/Pic->Ker(M -> Br[l]) iso
+//f4: Ker(M -> Br[l]) -> M
+//f5: M-> Br[l]
+f1 := PicInt;
+f2 := PhiDiscPicMatrix;
+ident1 := ChangeRing(HInt*Transpose(BPic*ChangeRing(BHfull^-1,Z))*PhiDiscPicMatrix,Zdmax);
+ident2 := Solution(BDiscT,ChangeRing(ChangeRing(HInt*Transpose(BT),Q)*ChangeRing(TInt,Q)^-1*dmax,Zdmax))*PhiDiscTMatrix;
+f3 := ChangeRing(Solution(ident1, IdentityMatrix(Zdmax,Dimension(DiscPic)))*ident2,Z);
+f4 := Solution(BM,PhiDiscTSection*BDiscT)*PhiMMatrix;
+f5 := PhiMSection*PhiBrlMatrix;
+
+assert IsGModuleHomomorphism(CDiscPicGen,CDiscTGen,f3);
+assert IsGModuleHomomorphism(CDiscTGen,CMGen,ChangeRing(f4,Z));
+assert IsGModuleHomomorphism(CMGen,CBrlGen,ChangeRing(f5,Zl));
+
+//a function which pulls back (if possible) and element from M to Disc
+f := function(x)
+    return DiscTalt!(Solution(BDiscT,DiscT!(M!(x*PhiMSection*BM)))*PhiDiscTMatrix);
+end function;

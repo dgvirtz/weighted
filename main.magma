@@ -1,0 +1,49 @@
+ds := [2,6,6,6]; l:=2;
+
+load "globals.magma";
+load "utils.magma";
+load "computeCohomology.magma";
+//load "computePic_lines.magma"; //only for (d,6)=1
+load "sextic2.magma";
+load "nontrivial2.magma";
+
+for j in nontrivial2 do
+    H := MatrixToSubgroup(allsubgroupsQ2[j]) @ isoGPC;
+    
+    if not IsTrivial(H) then
+        CPic := MyRestriction(CPicGen,H);
+        CPicDual := MyRestriction(CPicDualGen,H);
+        CDiscT := MyRestriction(CDiscTGen,H);
+        CBrl := MyRestriction(CBrlGen,H);
+        CM := MyRestriction(CMGen,H);
+    
+        H1PicDual := CohomologyGroup(CPicDual, 1);
+        H1Disc := CohomologyGroup(CDiscT, 1);
+        H0Brl := CohomologyGroup(CBrl,0);
+        m2 := InducedMapH1(CPicDual, CDiscT, f2*f3);
+        m1 := ConnectingMapH0H1(CDiscT,CM,CBrl,f,f5);
+    
+        A1 := RSpaceToAbelian(H0Brl);
+        A2 := RSpaceToAbelian(H1PicDual);
+        A3 := RSpaceToAbelian(H1Disc);
+        a13 := hom<A1->A3|[A3!Eltseq(x):x in RowSequence(m1)]>;
+        a23 := hom<A2->A3|[A3!Eltseq(x):x in RowSequence(m2)]>;
+        img := Image(a13) meet Image(a23);
+        
+        Brtrans := sub<A1|[x @@ a13: x in Generators(img)] cat Setseq(Generators(Kernel(a13)))>;
+        order := #Brtrans;
+        
+        NullModule := GModule(H,[ZeroMatrix(Z,0,0): g in PCGenerators(H)]); 
+        CNull := CohomologyModule(H, NullModule);
+        null := ZeroMatrix(Z,Dimension(CM),0);    
+                
+        if order gt 1 then
+           "Order: ", order;
+           //a, constraints := GenericExample(H @ isoGPCinv);
+            Br := HyperCohomologyGroup(CPicDual,CM,CNull,f2*f3*ChangeRing(f4,Z),null,1);
+            Br, CohomologyGroup(CPic,1);
+            assert Degree(Br) eq Degree(CohomologyGroup(CPic,1));
+            assert #Br eq order*#CohomologyGroup(CPic,1);
+        end if;
+    end if;
+end for;

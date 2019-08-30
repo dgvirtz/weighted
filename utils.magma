@@ -1,0 +1,397 @@
+//coefficient module of cohomology module CM independent of whether CM is free or abelian group
+MyModule := function(CM)
+    if CM`modtype eq ModGrp then
+        return RSpace(Ring(CM),Dimension(CM));
+    else
+        return RSpace(Z,Invariants(CM));
+    end if;
+end function;
+
+// restrict a G-module Mod along h:H->G
+RestrictGModule := function(Mod,h,H)
+    if Type(H) ne GrpPC then
+        return GModule(H,[Representation(Mod)(h(H.j)): j in [1..Ngens(H)]]);
+    else
+        return GModule(H,[Representation(Mod)(h(H.j)): j in [1..NPCgens(H)]]);
+    end if;
+end function;
+
+// factor a G-module Mod along h:G->H, assuming the action factors
+FactorGModule := function(Mod,h,H)
+    if Type(H) ne GrpPC then
+        return GModule(H,[Representation(Mod)((H.j)@@h): j in [1..Ngens(H)]]);
+    else
+        return GModule(H,[Representation(Mod)((H.j)@@h): j in [1..NPCgens(H)]]);
+    end if;
+end function;
+
+// submodule of G-module Mod defined by basis Phi, assuming it is preserved by action
+SubGModule := function(Mod,Phi)
+    return GModule(Group(Mod),[Solution(Phi,Phi*ac):ac in ActionGenerators(Mod)]);
+end function;
+
+// quotient module of G-module Mod modulo  submodule defined by Phi
+QuoGModule := function(Mod,Phi)
+    PhiSection := Solution(Phi,IdentityMatrix(CoefficientRing(Mod),Rank(Phi)));
+    return GModule(Group(Mod),[PhiSection*ac*Phi:ac in ActionGenerators(Mod)]);
+end function;
+
+//representative of integer m in Z/n, allowing n=0
+Modulo :=  function(m,n)
+    return (n eq 0 select m else m mod n);
+end function;
+
+//reduce entries of matrix Phi according to moduli given
+ReduceMatrix := function(Phi, moduli)
+    return Matrix(Nrows(Phi),Ncols(Phi),[<m,n,Modulo(Z!Phi[m,n],Gcd(Z!moduli[Min(m,n)],Characteristic(BaseRing(Phi))))>
+                                    :m in [1..Nrows(Phi)], n in [1..Ncols(Phi)]]);
+end function;
+
+//test if f:C->D is homomorphism of cohomology modules
+IsGModuleHomomorphism := function(C,D,f)
+    if D`modtype eq 'GrpAb' then
+        invD := Invariants(D);
+        return Group(C) eq Group(D) and
+            &and[IsZero(ReduceMatrix(ChangeRing(MatrixOfElement(C,g),Z)*f-f*ChangeRing(MatrixOfElement(D,g),Z),invD)):g in Generators(Group(C))];
+    else
+        return Group(C) eq Group(D) and &and[IsZero(ChangeRing(MatrixOfElement(C,g),Ring(D))*f-f*MatrixOfElement(D,g)):g in Generators(Group(C))];
+    end if;
+end function;
+
+//restrict cohomology module CM to subgroup H (Magma code does not convert to larger group)
+MyRestriction := function(CM, H)
+  local G, mats, CMH, Res1, Res2;
+  G := Group(CM);
+  if CM`modtype eq 'GrpAb' then
+    if Type(H) eq GrpPC then
+        mats := [ MatrixOfElement(CM, G!H.i) : i in [1..NPCgens(H)] ];
+    else
+        mats := [ MatrixOfElement(CM, G!H.i) : i in [1..Ngens(H)] ];
+    end if;
+    CMH := CohomologyModule(H, CM`invar, mats);
+  else
+    CMH := CohomologyModule(H, Restriction (CM`module, H) );
+  end if;
+  return CMH;
+end function;
+
+//for C a cohomology module of G and H subgroup of G, the map $H1(G,C)->H1(H,C)$
+RestrictionMapH1 := function(C,H)
+    H1 := CohomologyGroup(C,1);
+    Cres := MyRestriction(C,H);
+    Hres := CohomologyGroup(Cres,1);
+    return Matrix([IdentifyOneCocycle(Cres, func<a|OneCocycle(C,b)(<Group(C)!a[1]>)>):b in Basis(H1)]);
+end function;
+
+//the map H1(C)->H1(D) induced by phi:C->D
+InducedMapH1 := function(C,D,phi)
+    images := [];
+    H1C := CohomologyGroup(C,1);
+    H1D := CohomologyGroup(D,1);
+    for b in Basis(H1C) do
+        s := OneCocycle(C,b);
+        s_ind := func<tup|MyModule(D)!Eltseq(s(tup)*phi)>;
+        Append(~images,IdentifyOneCocycle(D,s_ind));
+    end for;
+    fstar := Matrix(Z,Rank(H1C),Rank(H1D),images);
+    return fstar;
+end function;
+
+//the map H0(C)->H0(D) induced by phi
+InducedMapH0 := function(C,D,phi)
+    images := [];
+    H0C := CohomologyGroup(C,0);
+    H0D := CohomologyGroup(D,0);
+    for b in Basis(H0C) do
+        s := ZeroCocycle(C,b);
+        s_ind := func<tup|RSpace(BaseRing(MyModule(D)), Dimension(D))!Eltseq(s(tup)*phi)>;
+        Append(~images,IdentifyZeroCocycle(D,s_ind));
+    end for;
+    fstar := Matrix(Z,Rank(H0C),Rank(H0D),images);
+    return fstar;
+end function;
+
+//connecting map for short exact seq. f:B->C, g:C->D
+ConnectingMapH0H1 := function(B,C,D,f,g)
+    connecting_images := [];
+    G := Group(B);
+    H0D := CohomologyGroup(D,0);
+    H1B := CohomologyGroup(B,1);
+    for b in Basis(H0D) do
+     s := ZeroCocycle(D,b);
+     s_pull := func<tup|Solution(ChangeRing(g,Ring(C)),ChangeRing(s(tup),Ring(C)))>;
+     ds:=func<tup|s_pull(<>)*ChangeRing(MatrixOfElement(C,G!tup[1]),Ring(C))-s_pull(<>)>; // cannot use CoboundaryMapImage because bug
+     ds_res := func<tup|f(ds(tup))>;
+     Append(~connecting_images,IdentifyOneCocycle(B,ds_res));
+    end for;
+    delta := Matrix(Z,Rank(H0D),Rank(H1B),connecting_images);
+    return delta;
+end function;
+
+//converts Z-module V to abelian group.
+RSpaceToAbelian := function(V)
+    return AbelianGroup([Gcd(Z!x,Characteristic(BaseRing(V))) : x in Moduli(V)]);
+end function;
+
+//convert V into Z-module with right moduli
+FullRSpace := function(V)
+    try 
+        Vfull := RSpace(Z,[Gcd(Z!x,Characteristic(BaseRing(V))) : x in Moduli(V)]);
+    catch e
+        Vfull := RSpace(Z,[Characteristic(BaseRing(V)) : j in [1..Degree(V)]]);
+    end try;
+    return sub<Vfull|RowSequence(ChangeRing(BasisMatrix(V),Z))>;
+end function;
+
+//the following functions rewrite the Magma cocycle functionality to give elements in Z1
+//(not mod coboundaries)
+ReduceAbAutVec := function(invar,vec)
+/* invar is a list of invariants of a finite abelian group A (with
+ * invar[i]>1, invar[i] divides invar[i+1] and vec a sequence of
+ * integers of length divisible by d. Reduce vec[ld+j] mod invar[j]
+ * and return resulting vector.
+ */
+ local d, ct, Z;
+ Z := Integers();
+ d := #invar;
+ if d ne 0 and #ElementToSequence(vec) mod d ne 0 then
+   error "vec must gave length divisible by #invar";
+ end if;
+ ct := 1;
+ for i in [1..#ElementToSequence(vec)] do
+   if invar[ct] ne 0 then
+     vec[i]:= Z!vec[i] mod invar[ct];
+   end if;
+   if ct eq d then ct:=1; else ct +:=1; end if;
+ end for;
+ return vec;
+end function;
+
+PCElToSeq := function(w)
+  /* w is a word in a PC-group. Convert to an integer sequence.
+   * (ElementToSequence does not do the right thing here!)
+   */
+  local s, es, l;
+  es := ElementToSequence(w);
+  l := #es; 
+  s := [];
+  for i in [1..l] do
+    s cat:= [ i : j in [1..es[i]] ];
+  end for;
+  return s;
+end function;
+
+ZOneCocyclePCPG := function(CM,s)
+//returns a function G-> module
+  local nselt, OC, d, ng, K, GR, mats, imats, V, genims;
+  nselt := ElementToSequence((CM`Z1)!s);
+  ng := Ngens(CM`gf); //same as NPCgens !
+  d := CM`dim;
+  K := CM`ring;
+  mats := CM`mats; imats:=CM`imats;
+  V := RSpace(K,d);
+  //find images of one-cocyle on generators
+  genims := [ V!(nselt[(i-1)*d+1 .. i*d]) : i in [1..ng] ];
+  OC := function(gtp)
+    local w, cmat, ans, g;
+    g := gtp[1];
+    w := PCElToSeq(g);
+    cmat := IdentityMatrix(K,d);
+    ans := V!0;
+    //scan from right hand end
+    for g in Reverse(w) do
+      if g lt 0 then
+        cmat := imats[-g]*cmat;
+        ans -:= genims[-g]*cmat;
+      else
+        ans +:= genims[g]*cmat;
+        cmat := mats[g]*cmat;
+      end if;
+    end for;
+    return ans;
+  end function;
+
+  return OC;
+end function;
+
+ZOneCocyclePCPGA := function(CM,s)
+//returns a function G-> module
+  local nselt, OC, d, ng, K, GR, invar, mats, imats, V, genims, Z;
+  nselt := ElementToSequence((CM`Z1)!s);
+  ng := Ngens(CM`gf); //same as NPCgens !
+  d := CM`dim;
+  K := CM`ring;
+  invar := CM`invar;
+  mats := CM`mats; imats:=CM`imats;
+  Z := Integers();
+  V := RSpace(Z,d);
+  //find images of one-cocyle on generators
+  genims := [ V!(nselt[(i-1)*d+1 .. i*d]) : i in [1..ng] ];
+  OC := function(gtp)
+    local w, cmat, ans, g;
+    g := gtp[1];
+    w := PCElToSeq(g);
+    cmat := IdentityMatrix(Z,d);
+    ans := V!0;
+    //scan from right hand end
+    for g in Reverse(w) do
+      if g lt 0 then
+        cmat := imats[-g]*cmat;
+        ans -:= genims[-g]*cmat;
+      else
+        ans +:= genims[g]*cmat;
+        cmat := mats[g]*cmat;
+      end if;
+    end for;
+    return ReduceAbAutVec(invar,ans);
+  end function;
+
+  return OC;
+end function;
+
+ZOneCocycle := function(CM, s)
+   if not assigned CM`H1 then
+     error "You must run CohomologyGroup(CM,1) before OneCocycle"; 
+   end if;
+   if CM`modtype eq ModGrp and
+       (CM`gptype eq GrpPerm or CM`gptype eq GrpMat) then
+     error "not implemented";
+   elif CM`modtype eq ModGrp and CM`gptype eq GrpPC then
+     return ZOneCocyclePCPG(CM,s);
+   elif CM`modtype eq ModGrp and CM`gptype eq GrpFP then
+     error "not implemented";
+   elif CM`modtype eq GrpAb and
+            (CM`gptype eq GrpPerm or CM`gptype eq GrpMat) then
+     error "not implemented";
+   elif CM`modtype eq GrpAb and CM`gptype eq GrpPC then
+     return ZOneCocyclePCPGA(CM,s);
+   elif CM`modtype eq GrpAb and CM`gptype eq GrpFP then
+     error "not implemented";
+   end if;
+end function;
+
+ZIdentifyOneCocyclePCPG := function(CM,OC)
+  //identify from action on strong generators
+  local sg, s;
+  sg := PCGenerators(CM`gpc);
+  s := &cat [ ElementToSequence(OC(<sg[i]>)) : i in [1..#sg] ];
+  s := RSpace(CM`ring,#s)!s;
+  if not s in CM`Z1 then
+    error "Input to IdentifyOneCocycle is not a cocycle";
+  end if;
+  return (CM`Z1)!s;
+end function;
+
+ZIdentifyOneCocyclePCPGA := function(CM,OC)
+  //identify from action on strong generators
+  local sg, s;
+  sg := PCGenerators(CM`gpc);
+  s := &cat [ ElementToSequence(OC(<sg[i]>)) : i in [1..#sg] ];
+  s := RSpace(Integers(),#s)!s;
+  if not s in CM`Z1 then
+    error "Input to IdentifyOneCocycle is not a cocycle";
+  end if;
+  return (CM`Z1)!s;
+end function;
+
+ZIdentifyOneCocycle := function(CM, s)
+   if not assigned CM`H1 then
+     error "You must run CohomologyGroup(CM,1) before OneCocycle"; 
+   end if;
+   if CM`modtype eq ModGrp and
+       (CM`gptype eq GrpPerm or CM`gptype eq GrpMat) then
+     error "not implemented";
+   elif CM`modtype eq ModGrp and CM`gptype eq GrpPC then
+     return ZIdentifyOneCocyclePCPG(CM,s);
+   elif CM`modtype eq ModGrp and CM`gptype eq GrpFP then
+     error "not implemented";
+   elif CM`modtype eq GrpAb and
+            (CM`gptype eq GrpPerm or CM`gptype eq GrpMat) then
+     error "not implemented";
+   elif CM`modtype eq GrpAb and CM`gptype eq GrpPC then
+     return ZIdentifyOneCocyclePCPGA(CM,s);
+   elif CM`modtype eq GrpAb and CM`gptype eq GrpFP then
+     error "not implemented";
+   end if;
+end function;
+
+Z1Space := function(C)
+    _:=CohomologyGroup(C,1);
+    Z1 := FullRSpace(ChangeRing(C`Z1, Ring(C)));;
+    try
+        return sub<RSpace(Z, &cat[C`invar:j in [1..Degree(Z1) div C`dim]])|Basis(Z1)>;
+    catch e
+        return Z1;
+    end try;
+end function;
+
+//for the complex CM0->CM1->CM2 with maps phi0, phi1 compute the n-th hypercohomology
+//currently one n=1
+/*
+0
+^
+|
+|
+Z2(CM0) --> Z2(CM1)-->  0
+^               ^       ^
+|               |       |
+|       h01     |       |
+Z1(CM0) --> Z1(CM1) --> Z1(CM2) --> 0
+^               ^       ^
+| v00        v10|       |
+|       phi0    |  phi1 |
+CM0     -->    CM1  --> CM2     --> 0
+*/
+HyperCohomologyGroup := function(CM0,CM1,CM2,phi0,phi1,n)
+    if n eq 1 then
+        _:=CohomologyGroup(CM0,1);
+        _:=CohomologyGroup(CM1,1);
+        Z01 := Z1Space(CM0);//FullRSpace(ChangeRing(CM0`Z1, Ring(CM0)));
+        Z11 := Z1Space(CM1);//FullRSpace(ChangeRing(CM1`Z1, Ring(CM1)));
+        
+        Z00 := FullRSpace(MyModule(CM0));
+        Z10 := FullRSpace(MyModule(CM1));
+        Z20 := FullRSpace(MyModule(CM2));
+    
+        images := [];
+        for b in Basis(Z00) do
+            ds:=func<tup|MyModule(CM0)!Eltseq(b*ChangeRing(MatrixOfElement(CM0,tup[1]),Z)-b)>;
+            Append(~images,Eltseq(ZIdentifyOneCocycle(CM0,ds)));
+        end for;
+        v00 := Matrix(Z,images);
+        
+        images := [];
+        for b in Basis(Z10) do
+            ds:=func<tup|MyModule(CM1)!Eltseq(b*ChangeRing(MatrixOfElement(CM1,tup[1]),Z)-b)>;
+            Append(~images,Eltseq(ZIdentifyOneCocycle(CM1,ds)));
+        end for;
+        v10 := Matrix(Z,images);
+    
+        images := [];
+        for b in Basis(Z01) do
+            s := ZOneCocycle(CM0,b);
+            s_ind := func<tup|MyModule(CM1)!Eltseq(s(tup)*phi0)>;
+            Append(~images,Eltseq(ZIdentifyOneCocycle(CM1,s_ind)));
+        end for;
+        h01 := Matrix(Z,images);
+        
+        Tot0 := Z00;
+        Tot1 := DirectSum(Z01,Z10);
+        Tot2 := DirectSum(Z11,Z20);
+        d0 := hom<Tot0->Tot1|RowSequence(HorizontalJoin(v00,phi0))>;
+        d1 := hom<Tot1->Tot2|RowSequence(HorizontalJoin(h01,ZeroMatrix(Z,Dimension(Z01),Degree(Z20)))) cat
+                            RowSequence(HorizontalJoin(-v10,phi1))>;
+        return Kernel(d1)/Image(d0), v00, v10, h01, phi0, phi1;
+    end if;
+end function;
+
+ContinuedFraction := function(x,c)
+        bs := [];
+        y := Abs(c)/x;
+        while y ne 0 do
+            b := Floor(c/y);
+            y := c/y - b;
+            Append(~bs,Sign(c)*b);
+        end while;
+        return bs;
+end function;

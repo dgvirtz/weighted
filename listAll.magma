@@ -1,0 +1,24 @@
+//load "cases4.magma";
+//load "cases5.magma";
+//load "cases6_2.magma";
+
+//all subgroups of G up to conjugacy and permutation of coordinates
+ListAllSubgroups := function() 
+    classes := {Class(GPC,H`subgroup):H in Subgroups(GPC)};
+    print "Computed", #classes, "conjugacy classes of subgroups";
+    s1 := G.(Ngens(Gal)+1); s2 := G.(Ngens(Gal)+2); s3 := G.(Ngens(Gal)+3);
+    gens := {s1,s2,s3};
+    S3 := Sym(gens); acc := Action(GSet(S3,gens));
+    gensG := [G.j: j in [1..Ngens(G)]];
+    perms := [iso<G->G|Insert(gensG,Ngens(Gal)+1,Ngens(Gal)+3,[acc(s1,s),acc(s2,s),acc(s3,s)])> :s in S3];
+    permsfin := [isoGPCinv*p*isoGPC : p in perms];
+    cases := [];
+    while not IsEmpty(classes) do
+        H := Rep(Rep(classes)); Append(~cases, H);
+        classes := classes diff {Class(GPC, sub<GPC|[p(g):g in Generators(H)]>) : p in permsfin};
+    end while;
+
+    print "Computed",#cases, "cases up to permutation";
+
+    return cases;
+end function;
